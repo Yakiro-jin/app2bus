@@ -5,6 +5,9 @@ import 'package:geolocator/geolocator.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/background_service.dart';
+import '../services/api_service.dart';
+import '../models/device_info.dart';
+import '../config/api_config.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -20,6 +23,14 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
   String _lastApiResponse = 'Esperando inicio...';
   late AnimationController _animationController;
   late Animation<double> _pulseAnimation;
+
+  final ApiService _apiService = ApiService(
+    endpoint: ApiConfig.baseUrl,
+  );
+  final DeviceInfo _device = const DeviceInfo(
+    id: 'vehiculo-123',
+    name: 'Conductor 1',
+  );
 
   @override
   void initState() {
@@ -184,6 +195,8 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                   ],
                 ),
               ),
+              const SizedBox(height: 20),
+              _buildIncidenceButton(),
               const Spacer(),
               _buildFooter(),
               const SizedBox(height: 20),
@@ -192,6 +205,93 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
         ),
       ),
     );
+  }
+
+  Widget _buildIncidenceButton() {
+    return ElevatedButton.icon(
+      onPressed: _showIncidenceDialog,
+      icon: const Icon(Icons.report_problem_outlined, size: 18),
+      label: const Text('Reportar Incidencia'),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: Colors.orangeAccent.withAlpha(200),
+        foregroundColor: Colors.white,
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+        elevation: 5,
+      ),
+    );
+  }
+
+  void _showIncidenceDialog() {
+    final TextEditingController controller = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1E293B),
+        title: const Text('Reportar Incidencia', style: TextStyle(color: Colors.white)),
+        content: TextField(
+          controller: controller,
+          maxLines: 3,
+          style: const TextStyle(color: Colors.white),
+          decoration: InputDecoration(
+            hintText: 'Escribe aquí lo ocurrido...',
+            hintStyle: TextStyle(color: Colors.white.withAlpha(100)),
+            enabledBorder: OutlineInputBorder(
+              borderSide: BorderSide(color: Colors.white.withAlpha(50)),
+            ),
+            focusedBorder: const OutlineInputBorder(
+              borderSide: BorderSide(color: Colors.orangeAccent),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancelar', style: TextStyle(color: Colors.white70)),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final text = controller.text.trim();
+              if (text.isNotEmpty) {
+                Navigator.pop(context);
+                _sendIncidence(text);
+              }
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.orangeAccent),
+            child: const Text('Enviar'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _sendIncidence(String message) async {
+    // Get current position for the incidence report
+    Position? position;
+    try {
+      position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+    } catch (e) {
+      debugPrint('Error getting position for incidence: $e');
+    }
+
+    // Even if position fails, we try to send it (maybe with 0,0 or last known)
+    final lat = position?.latitude ?? 0.0;
+    final lon = position?.longitude ?? 0.0;
+
+    final success = await _apiService.sendIncidence(
+      _device,
+      lat,
+      lon,
+      message,
+    );
+
+    if (success) {
+      _showSnackBar('Incidencia enviada correctamente');
+    } else {
+      _showSnackBar('Error al enviar la incidencia');
+    }
   }
 
   Widget _buildLargeCircularButton() {

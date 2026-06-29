@@ -7,6 +7,7 @@ import 'package:geolocator/geolocator.dart';
 // import 'package:shared_preferences/shared_preferences.dart';
 import 'api_service.dart';
 import '../models/device_info.dart';
+import '../config/api_config.dart';
 
 Future<void> initializeService() async {
   final service = FlutterBackgroundService();
@@ -77,8 +78,7 @@ void onStart(ServiceInstance service) async {
   );
 
   final ApiService apiService = ApiService(
-    endpoint:
-        'https://margaritavillage-n8n.eteqzh.easypanel.host/webhook/eba29058-3ba3-498d-9c70-dd5b7817b432',
+    endpoint: ApiConfig.baseUrl,
   );
   const DeviceInfo device = DeviceInfo(
     id: 'vehiculo-123',
@@ -113,6 +113,7 @@ void onStart(ServiceInstance service) async {
       device,
       position.latitude,
       position.longitude,
+      id: ApiConfig.testId,
     );
 
     // Update notification if on Android
