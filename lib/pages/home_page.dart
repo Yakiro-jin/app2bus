@@ -9,6 +9,8 @@ import '../services/api_service.dart';
 import '../models/device_info.dart';
 import '../config/api_config.dart';
 
+/// Pantalla principal de la app.
+/// Muestra el estado de la conexión, permite iniciar o detener la ruta y reportar incidencias.
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
 
@@ -16,17 +18,26 @@ class HomePage extends StatefulWidget {
   State<HomePage> createState() => _HomePageState();
 }
 
-class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin {
+/// Estado de la pantalla principal.
+/// Gestiona la animación del botón, el estado del servicio y la actualización visual de datos.
+class _HomePageState extends State<HomePage>
+    with SingleTickerProviderStateMixin {
+  // Indica si el servicio de seguimiento está activo en este momento.
   bool _isRunning = false;
+
+  // Información visual mostrada en la pantalla.
   String _lastUpdate = '--:--:--';
   String _coordinates = '0.000000, 0.000000';
   String _lastApiResponse = 'Esperando inicio...';
+
+  // Controlador y animación para el efecto de pulso del botón grande.
   late AnimationController _animationController;
   late Animation<double> _pulseAnimation;
 
-  final ApiService _apiService = ApiService(
-    endpoint: ApiConfig.baseUrl,
-  );
+  // Servicio para enviar datos a la API.
+  final ApiService _apiService = ApiService(endpoint: ApiConfig.baseUrl);
+
+  // Datos del vehículo que se usarán en los reportes.
   final DeviceInfo _device = const DeviceInfo(
     id: 'vehiculo-123',
     name: 'Conductor 1',
@@ -35,6 +46,8 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
   @override
   void initState() {
     super.initState();
+
+    // Crea la animación del botón de inicio/detención.
     _animationController = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 2),
@@ -43,6 +56,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
       CurvedAnimation(parent: _animationController, curve: Curves.easeInOut),
     );
 
+    // Cuando la pantalla ya está montada, inicializa el servicio y escucha eventos.
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await initializeService();
       _checkServiceStatus();
@@ -50,6 +64,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     });
   }
 
+  /// Consulta si el servicio de fondo está corriendo y recupera datos guardados antes.
   Future<void> _checkServiceStatus() async {
     final service = FlutterBackgroundService();
     final isRunning = await service.isRunning();
@@ -60,7 +75,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
       }
     });
 
-    // Recover last known data from SharedPreferences if needed
+    // Recupera la última actualización y coordenadas guardadas para mostrarlas al abrir la app.
     final prefs = await SharedPreferences.getInstance();
     setState(() {
       _lastUpdate = prefs.getString('last_update') ?? '--:--:--';
@@ -68,6 +83,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     });
   }
 
+  /// Se suscribe a los eventos enviados desde el servicio en segundo plano.
   void _listenToService() {
     FlutterBackgroundService().on('update').listen((event) async {
       if (event != null) {
@@ -75,7 +91,8 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
         final lon = event['longitude'];
         final ts = DateTime.parse(event['timestamp']);
         final timeString = DateFormat('HH:mm:ss').format(ts);
-        final coordString = '${lat.toStringAsFixed(6)}, ${lon.toStringAsFixed(6)}';
+        final coordString =
+            '${lat.toStringAsFixed(6)}, ${lon.toStringAsFixed(6)}';
 
         if (mounted) {
           setState(() {
@@ -85,7 +102,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
           });
         }
 
-        // Persist for app restarts
+        // Guarda los datos para que persistan aun si la app se reinicia.
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('last_update', timeString);
         await prefs.setString('last_coords', coordString);
@@ -93,12 +110,13 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     });
   }
 
+  /// Inicia o detiene la conexión según el estado actual del servicio.
   Future<void> _toggleConnection() async {
     final service = FlutterBackgroundService();
     final isRunning = await service.isRunning();
 
     if (!isRunning) {
-      // Check permissions first
+      // Verifica permisos de ubicación antes de iniciar la ruta.
       LocationPermission permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
@@ -128,6 +146,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     });
   }
 
+  /// Muestra un mensaje temporal en la parte inferior de la pantalla.
   void _showSnackBar(String message) {
     ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
@@ -136,7 +155,9 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
         duration: const Duration(seconds: 2),
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        backgroundColor: _isRunning ? Colors.redAccent : Colors.greenAccent.withAlpha(200),
+        backgroundColor: _isRunning
+            ? Colors.redAccent
+            : Colors.greenAccent.withAlpha(200),
       ),
     );
   }
@@ -170,9 +191,12 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
               const Spacer(),
               _buildLargeCircularButton(),
               const SizedBox(height: 30),
-              // TEST AREA
+              // Panel de estado temporal para mostrar la respuesta reciente de la API.
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
                 decoration: BoxDecoration(
                   color: Colors.blue.withAlpha(20),
                   borderRadius: BorderRadius.circular(30),
@@ -207,6 +231,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     );
   }
 
+  /// Botón para abrir el diálogo de reportar una incidencia.
   Widget _buildIncidenceButton() {
     return ElevatedButton.icon(
       onPressed: _showIncidenceDialog,
@@ -222,13 +247,17 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     );
   }
 
+  /// Muestra un cuadro de diálogo para escribir una incidencia.
   void _showIncidenceDialog() {
     final TextEditingController controller = TextEditingController();
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: const Color(0xFF1E293B),
-        title: const Text('Reportar Incidencia', style: TextStyle(color: Colors.white)),
+        title: const Text(
+          'Reportar Incidencia',
+          style: TextStyle(color: Colors.white),
+        ),
         content: TextField(
           controller: controller,
           maxLines: 3,
@@ -247,7 +276,10 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cancelar', style: TextStyle(color: Colors.white70)),
+            child: const Text(
+              'Cancelar',
+              style: TextStyle(color: Colors.white70),
+            ),
           ),
           ElevatedButton(
             onPressed: () {
@@ -257,7 +289,9 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                 _sendIncidence(text);
               }
             },
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.orangeAccent),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.orangeAccent,
+            ),
             child: const Text('Enviar'),
           ),
         ],
@@ -265,8 +299,9 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     );
   }
 
+  /// Envía la incidencia al backend utilizando la posición actual del dispositivo.
   Future<void> _sendIncidence(String message) async {
-    // Get current position for the incidence report
+    // Obtiene la posición actual para adjuntarla al reporte.
     Position? position;
     try {
       position = await Geolocator.getCurrentPosition(
@@ -276,16 +311,11 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
       debugPrint('Error getting position for incidence: $e');
     }
 
-    // Even if position fails, we try to send it (maybe with 0,0 or last known)
+    // Si falla la obtención, se envía con valores por defecto para no detener el flujo.
     final lat = position?.latitude ?? 0.0;
     final lon = position?.longitude ?? 0.0;
 
-    final success = await _apiService.sendIncidence(
-      _device,
-      lat,
-      lon,
-      message,
-    );
+    final success = await _apiService.sendIncidence(_device, lat, lon, message);
 
     if (success) {
       _showSnackBar('Incidencia enviada correctamente');
@@ -294,13 +324,14 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     }
   }
 
+  /// Construye el botón grande que inicia o detiene la ruta.
   Widget _buildLargeCircularButton() {
     return GestureDetector(
       onTap: _toggleConnection,
       child: Stack(
         alignment: Alignment.center,
         children: [
-          // Outer Glow/Pulse
+          // Efecto de pulso alrededor del botón principal.
           AnimatedBuilder(
             animation: _pulseAnimation,
             builder: (context, child) {
@@ -310,13 +341,15 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   color: _isRunning
-                      ? Colors.blue.withAlpha((40 / _pulseAnimation.value).round())
+                      ? Colors.blue.withAlpha(
+                          (40 / _pulseAnimation.value).round(),
+                        )
                       : Colors.transparent,
                 ),
               );
             },
           ),
-          // Sub-outer ring
+          // Anillo exterior del botón.
           Container(
             width: 220,
             height: 220,
@@ -328,7 +361,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
               ),
             ),
           ),
-          // Main Button
+          // Botón principal con color según el estado.
           Container(
             width: 180,
             height: 180,
@@ -374,6 +407,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     );
   }
 
+  /// Construye la barra inferior con la última actualización y coordenadas.
   Widget _buildFooter() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24.0),
@@ -396,6 +430,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     );
   }
 
+  /// Construye un bloque de texto con título y valor para mostrar datos resumidos.
   Widget _buildInfoItem(String title, String value) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,

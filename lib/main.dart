@@ -1,12 +1,18 @@
 import 'package:flutter/material.dart';
 import 'pages/home_page.dart';
-import 'services/background_service.dart';
 
+/// Punto de entrada principal de la aplicación.
+/// Aquí se inicializa Flutter y se carga la pantalla inicial del proyecto.
 void main() async {
+  // Asegura que los bindings de Flutter estén listos antes de ejecutar la app.
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Inicia la aplicación con el widget principal.
   runApp(const MainApp());
 }
 
+/// Widget raíz de la aplicación.
+/// Define el tema visual, el título y la pantalla inicial.
 class MainApp extends StatelessWidget {
   const MainApp({super.key});
 
