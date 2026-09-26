@@ -6,8 +6,10 @@ import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/background_service.dart';
 import '../services/api_service.dart';
+import '../services/auth_service.dart';
 import '../models/device_info.dart';
 import '../config/api_config.dart';
+import 'login_page.dart';
 
 /// Pantalla principal de la app.
 /// Muestra el estado de la conexión, permite iniciar o detener la ruta y reportar incidencias.
@@ -35,7 +37,7 @@ class _HomePageState extends State<HomePage>
   late Animation<double> _pulseAnimation;
 
   // Servicio para enviar datos a la API.
-  final ApiService _apiService = ApiService(endpoint: ApiConfig.baseUrl);
+  late ApiService _apiService;
 
   // Datos del vehículo que se usarán en los reportes.
   final DeviceInfo _device = const DeviceInfo(
@@ -43,9 +45,24 @@ class _HomePageState extends State<HomePage>
     name: 'Conductor 1',
   );
 
+  // Nombre del usuario con sesión activa.
+  String _username = '';
+
+  // ID del viaje asignado al chofer actual.
+  String _viajeId = ApiConfig.testId;
+
+  // Indica si el usuario ha sido verificado como chofer.
+  bool _isChofer = false;
+
+  // Indica si se está verificando el rol y buscando el viaje.
+  bool _isVerifying = true;
+
   @override
   void initState() {
     super.initState();
+
+    // Inicializa el servicio API (se actualizará con el token después).
+    _apiService = ApiService(endpoint: ApiConfig.baseUrl);
 
     // Crea la animación del botón de inicio/detención.
     _animationController = AnimationController(
@@ -56,13 +73,82 @@ class _HomePageState extends State<HomePage>
       CurvedAnimation(parent: _animationController, curve: Curves.easeInOut),
     );
 
-    // Cuando la pantalla ya está montada, inicializa el servicio y escucha eventos.
+    // Cuando la pantalla ya está montada, verifica el usuario y luego inicializa el servicio.
     WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await _verifyUserAndFindViaje();
       await initializeService();
       _checkServiceStatus();
       _listenToService();
     });
   }
+
+  /// Verifica que el usuario sea de tipo "Chofer" y busca su viaje asignado.
+  Future<void> _verifyUserAndFindViaje() async {
+    final token = await AuthService.getToken();
+    final username = await AuthService.getUsername();
+
+    if (username == null || username.isEmpty) {
+      // Sin sesión activa, redirige al login.
+      if (mounted) {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const LoginPage()),
+        );
+      }
+      return;
+    }
+
+    setState(() {
+      _username = username;
+    });
+
+    // Actualiza el servicio API con el token de autenticación.
+    _apiService = ApiService(endpoint: ApiConfig.baseUrl, token: token);
+
+    // Verifica el rol del usuario.
+    final userData = await _apiService.getUserByUsername(username);
+    if (userData != null) {
+      final rol = userData['rol']?.toString().toLowerCase() ?? '';
+      if (rol == 'chofer') {
+        setState(() {
+          _isChofer = true;
+        });
+
+        // Busca el viaje asignado al chofer.
+        final viajeId = await _apiService.findViajeIdForUser(username);
+        if (viajeId != null) {
+          setState(() {
+            _viajeId = viajeId.toString();
+          });
+          // Guarda el viaje en SharedPreferences para que el servicio de fondo lo use.
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString('viaje_id', _viajeId);
+        }
+      }
+    }
+
+    setState(() {
+      _isVerifying = false;
+    });
+  }
+
+  /// Cierra la sesión del usuario y regresa al login.
+  Future<void> _logout() async {
+    // Detiene el servicio si está corriendo.
+    final service = FlutterBackgroundService();
+    final isRunning = await service.isRunning();
+    if (isRunning) {
+      service.invoke('stopService');
+    }
+
+    await AuthService.logout();
+
+    if (mounted) {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (_) => const LoginPage()),
+      );
+    }
+  }
+
 
   /// Consulta si el servicio de fondo está corriendo y recupera datos guardados antes.
   Future<void> _checkServiceStatus() async {
@@ -112,10 +198,17 @@ class _HomePageState extends State<HomePage>
 
   /// Inicia o detiene la conexión según el estado actual del servicio.
   Future<void> _toggleConnection() async {
+    // Solo permite iniciar si el usuario es chofer.
+    if (!_isChofer) {
+      _showSnackBar('Solo los usuarios con rol Chofer pueden iniciar rutas');
+      return;
+    }
+
     final service = FlutterBackgroundService();
     final isRunning = await service.isRunning();
 
     if (!isRunning) {
+
       // Verifica permisos de ubicación antes de iniciar la ruta.
       LocationPermission permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
@@ -170,6 +263,35 @@ class _HomePageState extends State<HomePage>
 
   @override
   Widget build(BuildContext context) {
+    // Muestra un indicador de carga mientras se verifica el rol del usuario.
+    if (_isVerifying) {
+      return Scaffold(
+        body: Container(
+          width: double.infinity,
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [Color(0xFF1E293B), Color(0xFF0F172A)],
+            ),
+          ),
+          child: const Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(color: Color(0xFF3B82F6)),
+                SizedBox(height: 20),
+                Text(
+                  'Verificando usuario...',
+                  style: TextStyle(color: Colors.white70, fontSize: 16),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       body: Container(
         width: double.infinity,
@@ -183,11 +305,95 @@ class _HomePageState extends State<HomePage>
         child: SafeArea(
           child: Column(
             children: [
-              const SizedBox(height: 40),
+              // Barra superior con username y botón de logout.
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    // Indicador de usuario activo.
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF3B82F6).withAlpha(30),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.person_rounded,
+                            color: Color(0xFF3B82F6),
+                            size: 20,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _username,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            Text(
+                              _isChofer ? 'Chofer • Viaje #$_viajeId' : 'Usuario',
+                              style: TextStyle(
+                                color: Colors.white.withAlpha(120),
+                                fontSize: 11,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                    // Botón de cerrar sesión.
+                    IconButton(
+                      onPressed: _logout,
+                      icon: const Icon(
+                        Icons.logout_rounded,
+                        color: Colors.white54,
+                        size: 22,
+                      ),
+                      tooltip: 'Cerrar sesión',
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
               Text(
-                'Bienvenido Conductor',
+                'Bienvenido $_username',
                 style: Theme.of(context).textTheme.headlineMedium,
               ),
+
+              // Aviso si el usuario no es chofer.
+              if (!_isChofer) ...[
+                const SizedBox(height: 12),
+                Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 32),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: Colors.orangeAccent.withAlpha(20),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.orangeAccent.withAlpha(40)),
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(Icons.warning_amber_rounded, color: Colors.orangeAccent, size: 18),
+                      SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'Tu usuario no tiene rol de Chofer. El rastreo no está disponible.',
+                          style: TextStyle(color: Colors.orangeAccent, fontSize: 12),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+
               const Spacer(),
               _buildLargeCircularButton(),
               const SizedBox(height: 30),
@@ -208,7 +414,7 @@ class _HomePageState extends State<HomePage>
                     Icon(Icons.sensors, size: 16, color: Colors.blue.shade300),
                     const SizedBox(width: 8),
                     Text(
-                      'ESTADO TEST: $_lastApiResponse',
+                      'ESTADO: $_lastApiResponse',
                       style: TextStyle(
                         color: Colors.blue.shade300,
                         fontSize: 12,
@@ -222,6 +428,7 @@ class _HomePageState extends State<HomePage>
               const SizedBox(height: 20),
               _buildIncidenceButton(),
               const Spacer(),
+
               _buildFooter(),
               const SizedBox(height: 20),
             ],

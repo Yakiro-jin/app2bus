@@ -4,7 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:geolocator/geolocator.dart';
-// import 'package:shared_preferences/shared_preferences.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'api_service.dart';
 import '../models/device_info.dart';
 import '../config/api_config.dart';
@@ -92,11 +92,34 @@ void onStart(ServiceInstance service) async {
     const InitializationSettings(android: initializationSettingsAndroid),
   );
 
-  // Servicio encargado de enviar datos a la API.
-  final ApiService apiService = ApiService(endpoint: ApiConfig.baseUrl);
+  // Recupera el token JWT y el username almacenados en la sesión activa.
+  final prefs = await SharedPreferences.getInstance();
+  final token = prefs.getString('jwt_token');
+  final username = prefs.getString('username');
+
+  // Servicio encargado de enviar datos a la API, ahora con autenticación.
+  final ApiService apiService = ApiService(
+    endpoint: ApiConfig.baseUrl,
+    token: token,
+  );
 
   // Información del vehículo/conductor que se enviará con cada actualización.
   const DeviceInfo device = DeviceInfo(id: 'vehiculo-123', name: 'Conductor 1');
+
+  // Busca el viaje asignado al usuario actual.
+  // Si no se encuentra, usa el testId como respaldo.
+  String viajeId = ApiConfig.testId;
+  if (username != null && username.isNotEmpty) {
+    debugPrint('BackgroundService: Buscando viaje para usuario: $username');
+    final foundId = await apiService.findViajeIdForUser(username);
+    if (foundId != null) {
+      viajeId = foundId.toString();
+      debugPrint('BackgroundService: Viaje asignado encontrado: $viajeId');
+    } else {
+      debugPrint(
+          'BackgroundService: No se encontró viaje, usando testId: $viajeId');
+    }
+  }
 
   // Almacena la suscripción al stream de ubicación para poder cancelarla luego.
   StreamSubscription<Position>? positionStream;
@@ -126,13 +149,14 @@ void onStart(ServiceInstance service) async {
           distanceFilter: 5,
         ),
       ).listen((Position position) async {
-        // Envía la ubicación actual a la API.
+        // Envía la ubicación actual a la API usando el viaje encontrado.
         final _ = await apiService.sendLocation(
           device,
           position.latitude,
           position.longitude,
-          id: ApiConfig.testId,
+          id: viajeId,
         );
+
 
         // Actualiza la notificación si el servicio está corriendo en primer plano.
         if (service is AndroidServiceInstance) {
