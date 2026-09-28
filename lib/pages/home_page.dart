@@ -208,8 +208,13 @@ class _HomePageState extends State<HomePage>
     final isRunning = await service.isRunning();
 
     if (!isRunning) {
+      // Verifica si el servicio de ubicación está habilitado y los permisos antes de iniciar la ruta.
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        _showSnackBar('Los servicios de ubicación están deshabilitados');
+        return;
+      }
 
-      // Verifica permisos de ubicación antes de iniciar la ruta.
       LocationPermission permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();

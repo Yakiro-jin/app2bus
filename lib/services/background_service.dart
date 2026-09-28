@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:ui';
+import 'package:flutter/widgets.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -78,19 +79,13 @@ Future<bool> onIosBackground(ServiceInstance service) async {
 /// Escucha cambios de ubicación, envía datos a la API y actualiza la notificación.
 @pragma('vm:entry-point')
 void onStart(ServiceInstance service) async {
-  // Asegura que los plugins de Flutter estén listos dentro del isolate de background.
-  DartPluginRegistrant.ensureInitialized();
+  // Asegura que los bindings de Flutter y los plugins estén listos dentro del isolate de background.
+  WidgetsFlutterBinding.ensureInitialized();
+  // DartPluginRegistrant.ensureInitialized(); // Desactivado para evitar la excepción en debug
 
   // Plugin para mostrar notificaciones desde el proceso en segundo plano.
   final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
       FlutterLocalNotificationsPlugin();
-
-  // Inicialización necesaria para el proceso de segundo plano.
-  const AndroidInitializationSettings initializationSettingsAndroid =
-      AndroidInitializationSettings('@mipmap/ic_launcher');
-  await flutterLocalNotificationsPlugin.initialize(
-    const InitializationSettings(android: initializationSettingsAndroid),
-  );
 
   // Recupera el token JWT y el username almacenados en la sesión activa.
   final prefs = await SharedPreferences.getInstance();
